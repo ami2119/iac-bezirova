@@ -32,3 +32,19 @@ export APP_PORT GREETING SSH_KEY
 envsubst '${APP_PORT} ${GREETING} ${SSH_KEY}' \
   < work-02/cloud-init.tpl.yaml > work-02/cloud-init.yaml
 
+echo "==> машины"
+ZONES=("$ZONE_A" "$ZONE_B")
+SUBNETS=("$PREFIX-subnet-a" "$PREFIX-subnet-b")
+for i in $(seq 1 "$VM_COUNT"); do
+  idx=$(( (i - 1) % 2 ))
+  yc compute instance create \
+    --name "$PREFIX-app-$i" \
+    --zone "${ZONES[$idx]}" \
+    --platform standard-v3 \
+    --cores=2 --core-fraction=20 --memory=2 \
+    --preemptible \
+    --create-boot-disk image-folder-id=standard-images,image-family="$IMAGE_FAMILY",type=network-hdd,size="$BOOT_SIZE" \
+    --network-interface subnet-name="${SUBNETS[$idx]}",nat-ip-version=ipv4 \
+    --hostname "$PREFIX-app-$i" \
+    --metadata-from-file user-data=work-02/cloud-init.yaml
+done
