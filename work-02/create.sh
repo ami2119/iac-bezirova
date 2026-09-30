@@ -66,3 +66,11 @@ for i in $(seq 1 "$VM_COUNT"); do
   TARGETS="$TARGETS --target subnet-name=${SUBNETS[$idx]},address=$IP"
 done
 yc load-balancer target-group create --name "$PREFIX-tg" $TARGETS
+
+echo "==> балансировщик"
+TG_ID=$(yc load-balancer target-group get --name "$PREFIX-tg" --format json | jq -r .id)
+yc load-balancer network-load-balancer create \
+  --name "$PREFIX-lb" \
+  --region-id ru-central1 \
+  --listener name=http,port=80,target-port="$APP_PORT",external-ip-version=ipv4 \
+  --target-group target-group-id="$TG_ID",healthcheck-name=http,healthcheck-interval=2s,healthcheck-timeout=1s,healthcheck-unhealthythreshold=2,healthcheck-healthythreshold=2,healthcheck-http-port="$APP_PORT",healthcheck-http-path=/
