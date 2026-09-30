@@ -56,3 +56,13 @@ yc compute instance attach-disk "$PREFIX-app-1" \
   --disk-name "$PREFIX-data" \
   --device-name data \
   --auto-delete=false
+
+echo "==> целевая группа"
+TARGETS=""
+for i in $(seq 1 "$VM_COUNT"); do
+  idx=$(( (i - 1) % 2 ))
+  IP=$(yc compute instance get "$PREFIX-app-$i" --format json \
+    | jq -r '.network_interfaces[0].primary_v4_address.address')
+  TARGETS="$TARGETS --target subnet-name=${SUBNETS[$idx]},address=$IP"
+done
+yc load-balancer target-group create --name "$PREFIX-tg" $TARGETS
