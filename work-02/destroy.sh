@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PREFIX=bezirova-04
-VM_COUNT=3
+VM_COUNT="${1:-3}"
 
 echo "==> балансировщик"
 yc load-balancer network-load-balancer delete "$PREFIX-lb"
