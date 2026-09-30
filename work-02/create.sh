@@ -48,3 +48,11 @@ for i in $(seq 1 "$VM_COUNT"); do
     --hostname "$PREFIX-app-$i" \
     --metadata-from-file user-data=work-02/cloud-init.yaml
 done
+
+echo "==> дополнительный диск"
+yc compute disk create --name "$PREFIX-data" --zone "$ZONE_A" \
+  --size "$DISK_SIZE" --type network-hdd
+yc compute instance attach-disk "$PREFIX-app-1" \
+  --disk-name "$PREFIX-data" \
+  --device-name data \
+  --auto-delete=false
