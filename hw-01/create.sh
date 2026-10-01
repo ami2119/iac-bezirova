@@ -66,11 +66,6 @@ export APP_PORT GREETING SSH_KEY
 envsubst '${APP_PORT} ${GREETING} ${SSH_KEY}' \
   < hw-01/cloud-init.tpl.yaml > hw-01/cloud-init.yaml
 
-echo "==> файл настройки из шаблона"
-SSH_KEY=$(cat ~/.ssh/id_ed25519.pub)
-export APP_PORT GREETING SSH_KEY
-envsubst '${APP_PORT} ${GREETING} ${SSH_KEY}' \
-  < hw-01/cloud-init.tpl.yaml > hw-01/cloud-init.yaml
 
 echo "==> веб-серверы"
 ZONES=("$ZONE_A" "$ZONE_B")
@@ -121,4 +116,30 @@ else
     --hostname "$APP_NAME" \
     --attach-disk disk-name="$PREFIX-data",device-name=data,auto-delete=false \
     --metadata-from-file user-data=hw-01/cloud-init.yaml
+fi
+
+echo "==> целевая группа"
+if yc load-balancer target-group get "$PREFIX-tg" >/dev/null 2>&1; then
+  echo "целевая группа $PREFIX-tg уже есть, этот этап будет пропущен"
+else
+  TARGETS=""
+  for i in $(seq 1 "$WEB_COUNT"); do
+    idx=$(( (i - 1) % 2 ))
+    IP=$(yc compute instance get "$PREFIX-web-$i" --format json \
+      | jq -r '.network_interfaces[0].primary_v4_address.address')
+    TARGETS="$TARGETS --target subnet-name=${SUBNETS[$idx]},address=$IP"
+  done
+  yc load-balancer target-group create --name "$PREFIX-tg" $TARGETS
+fi
+
+echo "==> балансировщик"
+if yc load-balancer network-load-balancer get "$PREFIX-lb" >/dev/null 2>&1; then
+  echo "балансировщик $PREFIX-lb уже есть, этот этап будет пропущен"
+else
+  TG_ID=$(yc load-balancer target-group get --name "$PREFIX-tg" --format json | jq -r .id)
+  yc load-balancer network-load-balancer create \
+    --name "$PREFIX-lb" \
+    --region-id ru-central1 \
+    --listener name=http,port=80,target-port="$APP_PORT",external-ip-version=ipv4 \
+    --target-group target-group-id="$TG_ID",healthcheck-name=http,healthcheck-interval=2s,healthcheck-timeout=1s,healthcheck-unhealthythreshold=2,healthcheck-healthythreshold=2,healthcheck-http-port="$APP_PORT",healthcheck-http-path=/
 fi
