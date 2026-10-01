@@ -59,3 +59,66 @@ else
 fi
 
 yc vpc subnet update "$PREFIX-subnet-a" --route-table-name "$PREFIX-rt"
+
+echo "==> файл настройки из шаблона"
+SSH_KEY=$(cat ~/.ssh/id_ed25519.pub)
+export APP_PORT GREETING SSH_KEY
+envsubst '${APP_PORT} ${GREETING} ${SSH_KEY}' \
+  < hw-01/cloud-init.tpl.yaml > hw-01/cloud-init.yaml
+
+echo "==> файл настройки из шаблона"
+SSH_KEY=$(cat ~/.ssh/id_ed25519.pub)
+export APP_PORT GREETING SSH_KEY
+envsubst '${APP_PORT} ${GREETING} ${SSH_KEY}' \
+  < hw-01/cloud-init.tpl.yaml > hw-01/cloud-init.yaml
+
+echo "==> веб-серверы"
+ZONES=("$ZONE_A" "$ZONE_B")
+SUBNETS=("$PREFIX-subnet-a" "$PREFIX-subnet-b")
+for i in $(seq 1 "$WEB_COUNT"); do
+  idx=$(( (i - 1) % 2 ))
+  NAME="$PREFIX-web-$i"
+  if yc compute instance get "$NAME" >/dev/null 2>&1; then
+    echo "машина $NAME уже есть, этот этап будет пропущен"
+    continue
+  fi
+  yc compute instance create \
+    --name "$NAME" \
+    --zone "${ZONES[$idx]}" \
+    --platform standard-v3 \
+    --cores=2 --core-fraction=20 --memory=2 \
+    --preemptible \
+    --create-boot-disk image-folder-id=standard-images,image-family="$IMAGE_FAMILY",type=network-hdd,size="$BOOT_SIZE" \
+    --network-interface subnet-name="${SUBNETS[$idx]}",nat-ip-version=ipv4 \
+    --hostname "$NAME" \
+    --metadata-from-file user-data=hw-01/cloud-init.yaml
+done
+
+echo "==> сервер приложения (без публичного адреса)"
+APP_NAME="$PREFIX-app-1"
+
+if yc compute instance get "$APP_NAME" >/dev/null 2>&1; then
+  echo "машина $APP_NAME уже есть, этот этап будет пропущен"
+else
+  if yc compute disk get "$PREFIX-data" >/dev/null 2>&1; then
+    echo "диск $PREFIX-data уже есть, этот этап будет пропущен"
+  else
+    yc compute disk create \
+      --name "$PREFIX-data" \
+      --zone "$ZONE_A" \
+      --size "$DISK_SIZE" \
+      --type network-hdd
+  fi
+
+  yc compute instance create \
+    --name "$APP_NAME" \
+    --zone "$ZONE_A" \
+    --platform standard-v3 \
+    --cores=2 --core-fraction=20 --memory=2 \
+    --preemptible \
+    --create-boot-disk image-folder-id=standard-images,image-family="$IMAGE_FAMILY",type=network-hdd,size="$BOOT_SIZE" \
+    --network-interface subnet-name="$PREFIX-subnet-a" \
+    --hostname "$APP_NAME" \
+    --attach-disk disk-name="$PREFIX-data",device-name=data,auto-delete=false \
+    --metadata-from-file user-data=hw-01/cloud-init.yaml
+fi
