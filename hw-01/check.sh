@@ -4,21 +4,25 @@ set -uo pipefail
 PREFIX=bezirova-04
 APP_PORT=8012
 
-# адрес балансировщика и внутренний адрес app-машины 
 LB_IP=$(yc load-balancer network-load-balancer get --name "$PREFIX-lb" \
-  --format json | jq -r '.listeners[0].address')
-APP_IP=$(yc compute instance get "$PREFIX-app-1" --format json \
-  | jq -r '.network_interfaces[0].primary_v4_address.address')
+  --format json 2>/dev/null | jq -r '.listeners[0].address // empty' 2>/dev/null || true)
+APP_IP=$(yc compute instance get "$PREFIX-app-1" --format json 2>/dev/null \
+  | jq -r '.network_interfaces[0].primary_v4_address.address // empty' 2>/dev/null || true)
 
 RC=0
 
 echo "==> проверка 1: балансировщик отвечает 200"
-CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://$LB_IP")
-if [ "$CODE" = "200" ]; then
-  echo "OK  балансировщик отвечает: $CODE"
-else
-  echo "FAIL балансировщик ответил: $CODE"
+if [ -z "$LB_IP" ]; then
+  echo "FAIL балансировщик ответил: 000"
   RC=1
+else
+  CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 10 "http://$LB_IP")
+  if [ "$CODE" = "200" ]; then
+    echo "OK  балансировщик отвечает: $CODE"
+  else
+    echo "FAIL балансировщик ответил: $CODE"
+    RC=1
+  fi
 fi
 
 echo "==> проверка 2: отвечает больше одной машины"
@@ -34,10 +38,13 @@ else
 fi
 
 echo "==> проверка 3: app-машина доступна с web-1 по внутреннему адресу"
-WEB1_IP=$(yc compute instance get "$PREFIX-web-1" --format json \
-  | jq -r '.network_interfaces[0].primary_v4_address.one_to_one_nat.address')
-if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 "student@$WEB1_IP" \
-     "curl -s --max-time 5 http://$APP_IP:$APP_PORT | grep -q devlab"; then
+WEB1_IP=$(yc compute instance get "$PREFIX-web-1" --format json 2>/dev/null \
+  | jq -r '.network_interfaces[0].primary_v4_address.one_to_one_nat.address // empty' 2>/dev/null || true)
+if [ -z "$WEB1_IP" ]; then
+  echo "FAIL сервер приложения недоступен с web-1"
+  RC=1
+elif ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 "student@$WEB1_IP" \
+     "curl -s --max-time 5 http://$APP_IP:$APP_PORT | grep -q devlab" 2>/dev/null; then
   echo "OK  сервер приложения доступен с web-1"
 else
   echo "FAIL сервер приложения недоступен с web-1"
